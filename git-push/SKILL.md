@@ -1,9 +1,40 @@
 ---
 name: git-push
-description: 将当前个人分支的本地工作安全提交并推送到云端分支（gitcode/GitHub），自动排除本地私人文件（docs/ 等）、绝不合并主干、绝不 force push。触发词：提交到云端、推送到云端分支、push 云端、同步到云端分支、发布分支。
+description: 安全提交当前个人分支的未提交改动，或在工作区干净时仅推送已领先的 commit；出站范围经审查与确认后才推送。绝不合并主干或 force push。触发词：提交到云端、推送到云端分支、push 云端、同步到云端分支、发布分支。
 ---
 
 # Git Push
+
++
+## V2：可组合、可恢复的执行模型（优先于下文任何冲突规则）
+
+本 Skill 不假设 \`git-record\`、\`git-sync\` 或 \`change-report\` 已经运行。每次调用均从当前 worktree、Git 历史和本地状态索引重新判断，可重复执行。
+
+### 三种入口状态
+
+1. **有未提交候选改动**：盘点、排除敏感项、审查并在用户确认后创建精确 commit；然后继续检查是否可推送。
+2. **工作区干净但分支领先远端**：进入 **push-only** 模式，直接审查 \`origin/<branch>..HEAD\` 中已有的 commit；不得因“没有可提交文件”退出。
+3. **工作区干净且没有领先 commit**：报告已同步，无副作用退出。
+
+### 出站范围审查
+
+无论本次是否创建 commit，都必须审查全部待推送 commit 的文件清单与 \`Record-Id\` trailer。敏感文件、凭据、Token、私有配置和未获确认的本地日志一经出现在出站范围，立即停止并展示风险；仅靠“不再暂存”无法从已存在 commit 中移除文件。
+
+\`docs/\` 不再是无条件禁止项：普通文档按精确文件路径和用户确认处理；\`docs/change-log.md\` 默认视为 local-log，不得推送。只有 \`git-record --share-log\` 已得到明确确认时，才允许它随关联记录出站。
+
+### 远端与确认
+
+先 fetch 目标远端分支，检测远端领先、分叉或首次 push。远端领先或分叉时停止，不自动 pull、rebase 或 force push。推送前必须展示：
+
+- remote URL 与分支；
+- 全部将要推送的 commit；
+- 出站文件审查结果；
+- 完整 \`git push\` 命令。
+
+仅在用户针对这一次命令明确确认后推送。推送成功后，如发现关联 \`Record-Id\`，更新 \`.git/info/agent-git-workflow-state.json\` 的 \`pushed\` 状态；索引不存在时不报错。
+
+绝不推送 main/master，不 force push，不自动合并。
+
 
 ## Codex 执行覆盖（优先于下文）
 
@@ -121,4 +152,3 @@ git push origin <当前分支>
 - fetch 失败 → 停止，不动工作区。
 - 文件分类拿不准 → 停下问，不猜。
 - skill 只做 git 操作，不修改用户文件内容（读代码判断作用除外）。
-
