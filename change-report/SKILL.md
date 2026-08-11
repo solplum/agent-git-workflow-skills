@@ -5,7 +5,7 @@ description: 按指定记录、commit 或范围分析 Git 改动，生成面向�
 
 # Change Report
 
-+
+
 ## V2：可组合、可恢复的执行模型（优先于下文任何冲突规则）
 
 \`change-report\` 可在 commit 前、push 前、push 后或补记后调用；它不要求固定顺序，也绝不为了凑齐流程而编造状态。

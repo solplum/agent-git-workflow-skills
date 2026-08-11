@@ -5,7 +5,7 @@ description: 安全提交当前个人分支的未提交改动，或在工作区�
 
 # Git Push
 
-+
+
 ## V2：可组合、可恢复的执行模型（优先于下文任何冲突规则）
 
 本 Skill 不假设 \`git-record\`、\`git-sync\` 或 \`change-report\` 已经运行。每次调用均从当前 worktree、Git 历史和本地状态索引重新判断，可重复执行。
