@@ -1,19 +1,20 @@
 # Agent Git Workflow Skills
 
-一组面向 Claude Code 与 Codex 的 Git 工作流 Skill：把「记录改动、生成变更报告、同步主干、推送个人分支」拆成边界明确的 4 个显式动作。
+一组面向 Claude Code 与 Codex 的 Git 工作流 Skill：把「记录改动、生成变更报告、同步主干、本地合并、推送个人分支」拆成边界明确的 5 个显式动作。
 
 它们的共同目标不是替你猜测意图或代替代码审查，而是让每次 Git 操作都有可追溯的证据、清晰的确认点和可恢复的边界。
 
 ## V2：可组合，而非强制流水线
 
-四个 Skill 可以按任意顺序反复调用。它们不会要求你在一次任务中从头跑到尾，也不会因某个前置步骤未运行而失效。
+五个 Skill 可以按任意顺序反复调用。它们不会要求你在一次任务中从头跑到尾，也不会因某个前置步骤未运行而失效。
 
 - `git-sync` 默认只做安全检查与 fetch；只有 `--rebuild` 才会进入备份和重建。
 - `git-record` 会续写当前进行中的记录，也能对已提交或已推送但未记录的 commit 补记。
 - `git-push` 同时支持“有未提交改动后提交并推送”和“工作区干净、只推送已有 commit”。
 - `change-report` 可在 commit 前、push 前或 push 后生成报告，并如实标记当前状态。
+- `lzl-merge` 先判断内容是否已覆盖，再提供完整代码基线加有效独有增量或原生三方合并；未指定时先推荐并等用户选择，已指定不重复问；完成本地整合与验证，默认不创建 commit、不推送。
 
-Skill 共享一个仅本地存在的元数据索引：`.git/info/agent-git-workflow-state.json`。它只保存 Record-Id、分支、commit、状态和报告路径，不保存代码、凭据或敏感内容；索引丢失时，各 Skill 必须从 Git 与变更日志恢复事实。
+`git-record`、`git-push`、`git-sync` 与 `change-report` 共享一个仅本地存在的元数据索引：`.git/info/agent-git-workflow-state.json`。它只保存 Record-Id、分支、commit、状态和报告路径，不保存代码、凭据或敏感内容；索引丢失时，各 Skill 必须从 Git 与变更日志恢复事实。`lzl-merge` 不依赖该索引。
 
 ## 包含的 Skill
 
@@ -23,11 +24,12 @@ Skill 共享一个仅本地存在的元数据索引：`.git/info/agent-git-workf
 | [git-record](./git-record/SKILL.md) | 为本地改动写入项目变更日志，并在确认后创建本地 commit | 不联网；绝不推送 |
 | [git-push](./git-push/SKILL.md) | 将当前个人分支的已确认改动安全推送到 GitHub / GitCode | 需要联网；仅在确认后推送 |
 | [git-sync](./git-sync/SKILL.md) | 用 `origin/main` 刷新当前分支，同时识别和保护本地独有内容 | 只 fetch；绝不推送 |
+| [lzl-merge](./lzl-merge/SKILL.md) | 保留双方有效功能，选择合适路径完成本地合并与语义整合 | 按需 fetch；默认不提交、不推送 |
 
 ## 设计原则
 
 - **显式调用。** 这不是自动 hook：只有在你主动调用相应 Skill 时才执行对应流程。
-- **一项职责，一个边界。** `git-record` 只负责本地留痕与提交；`git-push` 只负责推送；`git-sync` 只从云端读取；`change-report` 只生成报告。
+- **一项职责，一个边界。** `git-record` 只负责本地留痕与提交；`git-push` 只负责推送；`git-sync` 只从云端读取；`change-report` 只生成报告；`lzl-merge` 负责本地合并与语义整合，提交和推送另行授权。
 - **证据优先。** 需求、实际 diff、Git 状态和验证结果彼此独立；不能确定的内容应写成「推断」或「待确认」，不能补写成事实。
 - **精确暂存。** 不使用 `git add -A` 或 `git add .`。每次提交都应列出明确文件路径。
 - **先确认再改变共享状态。** 本地提交、写入本地预设、重置分支和 `git push` 都各有明确的确认点。
@@ -47,6 +49,9 @@ Skill 共享一个仅本地存在的元数据索引：`.git/info/agent-git-workf
     ├─ /git-sync（需要把工作台重新对齐主干时）
     │  └─ fetch origin/main → 分类本地文件 → 备份 → 经确认后刷新
     │
+    ├─ /lzl-merge（需要保留双方功能并整合分支时）
+    │  └─ 核对代码覆盖与独有增量 → 选择整合路径 → 本地整合与验证
+    │
     └─ /change-report（需要向上汇报时）
        └─ 读取本次改动 → 展示草稿 → 确认后渲染为 Word
 ```
@@ -56,6 +61,7 @@ Skill 共享一个仅本地存在的元数据索引：`.git/info/agent-git-workf
 ```text
 git-sync → 改一点代码 → git-record → 继续改代码 → git-record
 git-record → git-push
+lzl-merge → git-record → git-push
 git-push → git-record（对已推送 commit 补记）
 change-report（在 push 前生成草稿）→ git-push → change-report（生成正式版本）
 ```
@@ -64,7 +70,7 @@ change-report（在 push 前生成草稿）→ git-push → change-report（生�
 
 ## 安装
 
-本仓库采用通用的「一个目录，一个 `SKILL.md`」布局。将所需目录原样复制到你的 Skill 根目录即可。
+本仓库采用通用的「一个目录，一个 `SKILL.md`」布局。将所需目录原样复制到你的 Skill 根目录即可；保留目录内的 `references/` 等配套文件。
 
 ### Claude Code
 
@@ -78,7 +84,9 @@ change-report（在 push 前生成草稿）→ git-push → change-report（生�
 │   └── SKILL.md
 ├── git-push/
 │   └── SKILL.md
-└── git-sync/
+├── git-sync/
+│   └── SKILL.md
+└── lzl-merge/
     └── SKILL.md
 ```
 
@@ -90,12 +98,13 @@ change-report（在 push 前生成草稿）→ git-push → change-report（生�
 <workspace>/.agents/skills/
 ├── git-record/
 ├── git-push/
-└── git-sync/
+├── git-sync/
+└── lzl-merge/
 ```
 
 `change-report` 也可放入 Codex 可发现的 Skill 目录（例如用户级 `.codex/skills/` 或你的工作区 Skill 根目录）。不同 Codex 安装方式的发现目录可能不同，请以本机的 Skill 列表为准。
 
-复制完成后，开启一个新会话或重新加载 Skill 列表，确认 4 个名称均可见。
+复制完成后，开启一个新会话或重新加载 Skill 列表，确认 5 个名称均可见。
 
 ## Skill 详解
 
@@ -193,6 +202,23 @@ change-report（在 push 前生成草稿）→ git-push → change-report（生�
 - Token、凭据、私有地址和无关会话内容。
 - 把推断、未验证结果或未确认原因写成既定事实。
 
+### 5. `lzl-merge`：本地合并与语义整合
+
+适用场景：
+
+- 把主干更新合入自己的功能分支，或整合协作分支，同时保留双方有效功能和修复。
+- 接手已有合并冲突，检查无文本冲突处的行为是否兼容。
+
+它会：
+
+1. 锁定目标仓库、双方基线和授权范围，保护已有未提交改动；不擅自 stash、暂存或提交这些改动。
+2. 执行前检查内容是否已覆盖；确需整合时，用户可选「完整代码基线 + 有效独有增量」或「原生三方合并」。未指定则先分析推荐并等待选择，已指定不重复询问；也可明确授权自动判断并执行。不以提交历史线性为目标，也不只凭 commit 数量判断内容是否完整。
+3. 核对双方功能和修复的去向，解决文本冲突与语义兼容问题，并运行与影响面相称的验证。
+4. 对能从需求和代码查清的问题继续完成整合；真正的业务政策冲突交由用户决定。
+5. 报告整合结果、验证证据与未决事项；默认不创建 commit、不推送，后续提交与推送另行授权。
+
+`git-sync --rebuild` 用远端基线重建工作台；`lzl-merge` 以保留双方有效内容为目标，不用 reset 覆盖来代替整合。
+
 ## 变更日志约定
 
 `git-record` 优先复用以下路径中的既有日志：
@@ -231,15 +257,16 @@ change-report（在 push 前生成草稿）→ git-push → change-report（生�
 
 ## 安全边界速查
 
-| 行为 | git-record | git-push | git-sync | change-report |
-| --- | :---: | :---: | :---: | :---: |
-| 读取 Git 状态 / diff | 是 | 是 | 是 | 是 |
-| 写项目变更日志 | 是 | 否 | 否 | 否 |
-| 创建本地 commit | 经确认 | 经确认 | 仅备份时、经确认 | 否 |
-| fetch 云端 | 否 | 是 | 是 | 否 |
-| push 云端 | **否** | 经确认 | **否** | **否** |
-| reset --hard | 否 | 否 | 经备份与确认 | 否 |
-| 自动合并主干 | 否 | 否 | 否 | 否 |
+| 行为 | git-record | git-push | git-sync | change-report | lzl-merge |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| 读取 Git 状态 / diff | 是 | 是 | 是 | 是 | 是 |
+| 写项目变更日志 | 是 | 否 | 否 | 否 | 否 |
+| 创建本地 commit | 经确认 | 经确认 | 仅备份时、经确认 | 否 | 默认否，另行授权 |
+| fetch 云端 | 否 | 是 | 是 | 否 | 按需 |
+| push 云端 | **否** | 经确认 | **否** | **否** | 默认否，另行授权 |
+| reset --hard | 否 | 否 | 经备份与确认 | 否 | 不用于覆盖双方改动 |
+| 本地合并与语义整合 | 否 | 否 | 否 | 否 | 按请求执行 |
+| 未经请求自动合并主干 | 否 | 否 | 否 | 否 | 否 |
 
 ## 仓库结构
 
@@ -252,7 +279,9 @@ agent-git-workflow-skills/
 │   └── SKILL.md
 ├── git-push/
 │   └── SKILL.md
-└── git-sync/
+├── git-sync/
+│   └── SKILL.md
+└── lzl-merge/
     └── SKILL.md
 ```
 

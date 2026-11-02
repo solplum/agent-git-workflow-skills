@@ -1,0 +1,3 @@
+interface:
+  display_name: "lzl-merge"
+  short_description: "在分支分叉后整合双方行为，检查逻辑兼容并验证本地合并结果"
